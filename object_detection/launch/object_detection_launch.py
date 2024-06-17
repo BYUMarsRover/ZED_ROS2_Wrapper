@@ -1,6 +1,8 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 import os
 
 def generate_launch_description():
@@ -18,9 +20,14 @@ def generate_launch_description():
             # output='screen',
             parameters=[params_file],
         ),
-        Node(
-             package='tf2_ros',
-             executable='static_transform_publisher',
-             arguments = ['--x', '0', '--y', '0', '--z', '0', '--yaw', '0', '--pitch', '0', '--roll', '0', '--frame-id', 'base_link', '--child-frame-id', 'zed_imu_link']
+
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join( 
+                get_package_share_directory('gpsd_client'), 'launch', 'gpsd_client-launch.py'))
         ),
+        # Node(
+        #      package='tf2_ros',
+        #      executable='static_transform_publisher',
+        #      arguments = ['--x', '0', '--y', '0', '--z', '0', '--yaw', '0', '--pitch', '0', '--roll', '0', '--frame-id', 'base_link', '--child-frame-id', 'zed_imu_link']
+        # ),
     ])
