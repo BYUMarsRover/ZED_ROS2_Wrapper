@@ -335,7 +335,7 @@ private:
     void process_ZED_data(){
         if (zed.grab() == sl::ERROR_CODE::SUCCESS) {
             publish_sensor_data();
-            // publish_position_data();
+            publish_position_data();
             publish_process_fusion();
         }
     }
