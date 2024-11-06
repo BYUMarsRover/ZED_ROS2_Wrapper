@@ -8,7 +8,6 @@
 
 #include "yolo.hpp"
 // #include "sl_tools.h"
-//TODO add tensorrt to docker file
 
 #include <sl/Camera.hpp>
 #include <NvInfer.h>
@@ -26,7 +25,8 @@
 
 using namespace nvinfer1;
 #define NMS_THRESH 0.4
-#define CONF_THRESH 0.3
+// #define CONF_THRESH 0.3
+#define CONF_THRESH 0.1
 
 #ifndef DEG2RAD
 #define DEG2RAD 0.017453293
@@ -34,14 +34,13 @@ using namespace nvinfer1;
 #endif
 
 
-
 class ObjectDetectionNode : public rclcpp::Node {
 public:
     ObjectDetectionNode() : Node("object_detection") {
         // Publishers
-        rclcpp::Node::SharedPtr node = rclcpp::Node::make_shared("image_publisher");
-        image_transport::ImageTransport it(node);
-        image_transport::Publisher detection_annotation_ = it.advertise("/object_detection/annotated", 1);
+        // rclcpp::Node::SharedPtr node = rclcpp::Node::make_shared("image_publisher");
+        // image_transport::ImageTransport it(node);
+        // image_transport::Publisher detection_annotation_ = it.advertise("/object_detection/annotated", 1);
         // detection_annotation_ = image_transport::ImageTransport(this).advertise("/object_detection/annotated", 1);
         object_detection_pub_ = this->create_publisher<rover_msgs::msg::ObjectDetections>("/object_detection", 10);
         // Declare the 'engine_name' parameter with an empty string as the default value
@@ -53,30 +52,33 @@ public:
         // Initialize pose with identity
         cam_w_pose.pose_data.setIdentity();
 
-        /* Custom YOLOv8 model initialization */
-        Yolo detector;
-        if (!engine_name.empty()) {
-            RCLCPP_INFO(this->get_logger(), "Using YOLOv8 model engine: %s", engine_name.c_str());
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "No YOLOv8 model engine specified.");
-            throw std::runtime_error("Engine not specified.");
-            return;
-        }
-        if (detector.init(engine_name)) {
-            RCLCPP_ERROR(this->get_logger(), "Detector init failed!");
-            throw std::runtime_error("Detector init failed");
-            return;
-        }
-        std::cout << "Initialized object detection" << std::endl;
-
         setup_node();
+
+        setup_yolo(engine_name);        
         
         // Timer for the detection loop
-        timer_ = this->create_wall_timer(std::chrono::milliseconds(16), std::bind(&ObjectDetectionNode::processFrame, this));
+        timer_ = this->create_wall_timer(std::chrono::milliseconds(2000), std::bind(&ObjectDetectionNode::processFrame, this));
 
     }
 
 private:
+
+    void setup_yolo(std::string engine_name){
+        /* Custom YOLOv8 model initialization */
+        if (!engine_name.empty()) {
+            std::cout << "Using YOLOv8 model engine: " << engine_name.c_str() << std::endl;
+        } else {
+            std::cout << "No YOLOv8 model engine specified." << std::endl;
+            throw std::runtime_error("Engine not specified.");
+            return;
+        }
+        if (detector_.init(engine_name)) {
+            std::cout << "Detector init failed!" << std::endl;
+            throw std::runtime_error("Detector init failed");
+            return;
+        }
+        std::cout << "Initialized object detection" << std::endl;
+    }
 
     cv::Rect get_rect(BBox box) {
         return cv::Rect(round(box.x1), round(box.y1), round(box.x2 - box.x1), round(box.y2 - box.y1));
@@ -98,12 +100,10 @@ private:
         // left_camera_info_msg.reset(new sensor_msgs::CameraInfo());
         // std::string left_camera_frame_id = "zed2i_left_camera_optical_frame";
         
-        /* Resolution calcualations */
-        sl::Resolution resolution;
 
         /* ZED camera initializaion */
         // Opening the ZED camera before the model deserialization to avoid cuda context issue
-        sl::InitParameters init_parameters;
+        
         init_parameters.sdk_verbose = true;
         init_parameters.input.setFromSerialNumber(20382332);
         init_parameters.depth_mode = sl::DEPTH_MODE::ULTRA;
@@ -149,7 +149,7 @@ private:
         // Grab image from ZED and process detections
         if (zed.grab() == sl::ERROR_CODE::SUCCESS) {
             /* Left image */
-            zed.retrieveImage(left_sl, sl::VIEW::LEFT);
+            // zed.retrieveImage(left_sl, sl::VIEW::LEFT);
             /* Object detections */
             publishDetections();
         }
@@ -158,30 +158,59 @@ private:
     void publishDetections() {
         // Running inference
         //CHECK TO MAKE SURE: THIS MIGHT NEED TO RUN ONLY WHEN WE WANT IT TO hence the subscriber count
+        zed.retrieveImage(left_sl, sl::VIEW::LEFT);
+        // Convert the sl::Mat to cv::Mat
+   
         auto detections = detector_.run(left_sl, display_resolution_.height, display_resolution_.width, CONF_THRESH);
+        
+        left_cv_ = slMat2cvMat(left_sl);
+
+        // Preparing for ZED SDK ingesting
+        std::vector<sl::CustomBoxObjectData> objects_in;
+        
+        for (auto &it : detections) {
+            sl::CustomBoxObjectData tmp;
+            // Fill the detections into the correct format
+            tmp.unique_object_id = sl::generate_unique_id();
+            tmp.probability = it.prob;
+            tmp.label = (int) it.label;
+            tmp.bounding_box_2d = cvt(it.box);
+            tmp.is_grounded = ((int) it.label == 0); // Only the first class (person) is grounded, that is moving on the floor plane
+            // others are tracked in full 3D space
+            objects_in.push_back(tmp);
+        }
+        // Send the custom detected boxes to the ZED
+        zed.ingestCustomBoxObjects(objects_in);
+
+
+        //DETECTION ANNOTATION PUBLISHER HERE
+
 
         // Publish detections if subscribers are present
-        if (object_detection_pub_->get_subscription_count() > 0) {
-            zed.retrieveObjects(objects_, object_tracker_params_rt_);
-            if (!objects_.object_list.empty()) {
-                rover_msgs::msg::ObjectDetections msg;
-                msg.header.stamp = now();
-                msg.header.frame_id = "object_detections";
-                
-                for (const auto& object : objects_.object_list) {
-                    rover_msgs::msg::ObjectDetection detection;
-                    detection.id = object.id;
-                    detection.label = object.raw_label;
-                    detection.x = object.position[0];
-                    detection.y = object.position[1];
-                    detection.z = object.position[2];
-                    detection.confidence = object.confidence;
-                    msg.objects.push_back(detection);
-                }
-
-                object_detection_pub_->publish(msg);
+        // if (object_detection_pub_->get_subscription_count() > 0) {
+        zed.retrieveObjects(objects, object_tracker_params_rt_);
+        std::cout << "Object Detection Check" << std::endl;
+        
+        if (!objects.object_list.empty()) {
+            rover_msgs::msg::ObjectDetections msg;
+            msg.header.stamp = now();
+            msg.header.frame_id = "object_detections";
+            
+            for (const auto& object : objects.object_list) {
+                rover_msgs::msg::ObjectDetection detection;
+                detection.id = object.id;
+                detection.label = object.raw_label;
+                detection.x = object.position.x;
+                detection.y = object.position.y;
+                detection.z = object.position.z;
+                detection.confidence = object.confidence;
+                msg.objects.push_back(detection);
+                std::cout << "Object Detected" << std::endl;
             }
+
+            object_detection_pub_->publish(msg);
         }
+        // }
 
         // TODO: WE MIGHT NEED THE CVT FUNCTION IN HERE FOR ANNotations??
         // THE OLD CODE LOOKS A LITTLE DIFFERENT BELOW THIS
@@ -208,9 +237,13 @@ private:
     sl::Camera zed;
     Yolo detector_;
     cv::Mat left_cv_;
-    sl::Objects objects_;
+    sl::Objects objects;
     sl::ObjectDetectionRuntimeParameters object_tracker_params_rt_;
     sl::Resolution display_resolution_;
+    sl::InitParameters init_parameters;
+
+    /* Resolution calcualations */
+    sl::Resolution resolution;
 
 
     sl::Mat left_sl, point_cloud;
