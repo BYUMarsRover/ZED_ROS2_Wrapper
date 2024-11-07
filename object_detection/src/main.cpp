@@ -24,9 +24,7 @@
 
 
 using namespace nvinfer1;
-#define NMS_THRESH 0.4
-// #define CONF_THRESH 0.3
-#define CONF_THRESH 0.1
+#define NMS_THRESH 0.4  //Not sure where this is used
 
 #ifndef DEG2RAD
 #define DEG2RAD 0.017453293
@@ -43,22 +41,27 @@ public:
         // image_transport::Publisher detection_annotation_ = it.advertise("/object_detection/annotated", 1);
         // detection_annotation_ = image_transport::ImageTransport(this).advertise("/object_detection/annotated", 1);
         object_detection_pub_ = this->create_publisher<rover_msgs::msg::ObjectDetections>("/object_detection", 10);
+        
         // Declare the 'engine_name' parameter with an empty string as the default value
         this->declare_parameter<std::string>("engine_name", "");
-        // Retrieve the 'engine_name' parameter from the node's parameters
         std::string engine_name;
         this->get_parameter("engine_name", engine_name);
+        // Period in milliseconds for frame process 
+        int process_period_ms;      
+        this->declare_parameter<int>("process_period_ms", 2000);
+        this->get_parameter("process_period_ms", process_period_ms);
+
+        this->declare_parameter<float>("confidence_thresh", 0.3);
+        this->get_parameter("confidence_thresh", this->conf_thresh);
 
         // Initialize pose with identity
         cam_w_pose.pose_data.setIdentity();
 
         setup_node();
 
-        setup_yolo(engine_name);        
-        
+        setup_yolo(engine_name);  
         // Timer for the detection loop
-        timer_ = this->create_wall_timer(std::chrono::milliseconds(2000), std::bind(&ObjectDetectionNode::processFrame, this));
-
+        timer_ = this->create_wall_timer(std::chrono::milliseconds(process_period_ms), std::bind(&ObjectDetectionNode::processFrame, this));
     }
 
 private:
@@ -161,7 +164,7 @@ private:
         zed.retrieveImage(left_sl, sl::VIEW::LEFT);
         // Convert the sl::Mat to cv::Mat
    
-        auto detections = detector_.run(left_sl, display_resolution_.height, display_resolution_.width, CONF_THRESH);
+        auto detections = detector_.run(left_sl, display_resolution_.height, display_resolution_.width, this->conf_thresh);
         
         left_cv_ = slMat2cvMat(left_sl);
 
@@ -189,7 +192,7 @@ private:
         // Publish detections if subscribers are present
         // if (object_detection_pub_->get_subscription_count() > 0) {
         zed.retrieveObjects(objects, object_tracker_params_rt_);
-        std::cout << "Object Detection Check" << std::endl;
+        // std::cout << "Object Detection Check" << std::endl;
         
         if (!objects.object_list.empty()) {
             rover_msgs::msg::ObjectDetections msg;
@@ -205,7 +208,7 @@ private:
                 detection.z = object.position.z;
                 detection.confidence = object.confidence;
                 msg.objects.push_back(detection);
-                std::cout << "Object Detected" << std::endl;
+                // std::cout << "Object Detected" << std::endl;
             }
 
             object_detection_pub_->publish(msg);
@@ -255,6 +258,8 @@ private:
     rclcpp::Publisher<rover_msgs::msg::ObjectDetections>::SharedPtr object_detection_pub_;
     image_transport::Publisher detection_annotation_;
     rclcpp::TimerBase::SharedPtr timer_;
+
+    float conf_thresh;
 };
 
 
