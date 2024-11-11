@@ -115,10 +115,10 @@ Yolo::~Yolo() {
         cudaStreamDestroy(stream);
         CUDA_CHECK(cudaFree(d_input));
         CUDA_CHECK(cudaFree(d_output));
-        // // Destroy the engine DEPRECATED FUNCTION...
-        // context->reset();
-        // engine->reset();
-        // runtime->reset();
+        // Destroy the engine
+        context->destroy();
+        engine->destroy();
+        runtime->destroy();
 
         delete[] h_input;
         delete[] h_output;
@@ -154,26 +154,24 @@ int Yolo::init(std::string engine_name) {
     if (context == nullptr) return 1;
 
     delete[] trtModelStream;
-    if (engine->getNbIOTensors() != 2) return 1;
+    if (engine->getNbBindings() != 2) return 1;
 
 
-    const int bindings = engine->getNbIOTensors();
+    const int bindings = engine->getNbBindings();
     for (int i = 0; i < bindings; i++) {
-        if ((engine->getTensorIOMode(engine->getIOTensorName(i)) == nvinfer1::TensorIOMode::kINPUT)) {
-            input_binding_name = engine->getIOTensorName(i);
-            Dims bind_dim = engine->getTensorShape(engine->getIOTensorName(i));
-            // Dims bind_dim = engine->getTensorShape(i);
+        if (engine->bindingIsInput(i)) {
+            input_binding_name = engine->getBindingName(i);
+            Dims bind_dim = engine->getBindingDimensions(i);
             input_width = bind_dim.d[3];
             input_height = bind_dim.d[2];
             inputIndex = i;
             std::cout << "Inference size : " << input_height << "x" << input_width << std::endl;
         }//if (engine->getTensorIOMode(engine->getBindingName(i)) == TensorIOMode::kOUTPUT) 
         else {
-            output_name = engine->getIOTensorName(i);
+            output_name = engine->getBindingName(i);
             // fill size, allocation must be done externally
             outputIndex = i;
-            // Dims bind_dim = engine->getTensorShape(i);
-            Dims bind_dim = engine->getTensorShape(engine->getIOTensorName(i));
+            Dims bind_dim = engine->getBindingDimensions(i);
             size_t batch = bind_dim.d[0];
             if (batch > batch_size) {
                 std::cout << "batch > 1 not supported" << std::endl;
@@ -245,20 +243,10 @@ std::vector<BBoxInfo> Yolo::run(sl::Mat left_sl, int orig_image_h, int orig_imag
     // DMA input batch data to device, infer on the batch asynchronously, and DMA output back to host
     CUDA_CHECK(cudaMemcpyAsync(d_input, h_input, batch_size * 3 * frame_s * sizeof (float), cudaMemcpyHostToDevice, stream));
 
-    // std::vector<void*> d_buffers_nvinfer(2);
-    // d_buffers_nvinfer[inputIndex] = d_input;
-    // d_buffers_nvinfer[outputIndex] = d_output;
-    // std::vector<void*> bindings(d_buffers_nvinfer.begin(), d_buffers_nvinfer.end());
-    // context->enqueueV3(batch_size, bindings.data(), stream, nullptr);
-    // context->enqueueV3(batch_size, d_buffers_nvinfer.data(), stream, nullptr);
-    context->setTensorAddress(input_binding_name.c_str(), d_input);
-    context->setTensorAddress(output_name.c_str(), d_output);
-    bool status = context->enqueueV3(stream);
-    if (!status) {
-        std::cerr << "Enqueue failed!" << std::endl;
-        return binfo;
-    }
-
+    std::vector<void*> d_buffers_nvinfer(2);
+    d_buffers_nvinfer[inputIndex] = d_input;
+    d_buffers_nvinfer[outputIndex] = d_output;
+    context->enqueueV2(&d_buffers_nvinfer[0], stream, nullptr);
 
     CUDA_CHECK(cudaMemcpyAsync(h_output, d_output, batch_size * output_size * sizeof (float), cudaMemcpyDeviceToHost, stream));
     cudaStreamSynchronize(stream);
