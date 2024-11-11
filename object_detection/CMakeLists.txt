@@ -26,6 +26,7 @@ find_package(rclcpp REQUIRED)
 find_package(rover_msgs REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 # find_package(TensorRT REQUIRED)
 
 # uncomment the following section in order to fill in

@@ -177,8 +177,8 @@ private:
         sl::SensorsData sensors_data;
         sl::Pose camera_pose;
 
-        zed_.getSensorsData(sensors_data, sl::TIME_REFERENCE::CURRENT);
-        zed_.getPosition(camera_pose, sl::REFERENCE_FRAME::WORLD);
+        zed.getSensorsData(sensors_data, sl::TIME_REFERENCE::CURRENT);
+        zed.getPosition(camera_pose, sl::REFERENCE_FRAME::WORLD);
 
         auto current_timestamp = this->now();
 
@@ -205,9 +205,9 @@ private:
         auto mag_msg = std::make_unique<sensor_msgs::msg::MagneticField>();
         mag_msg->header.stamp = current_timestamp;
         mag_msg->header.frame_id = "zed_imu_link";
-        mag_msg->magnetic_field.x = imu_data.magnetic_field.x;
-        mag_msg->magnetic_field.y = imu_data.magnetic_field.y;
-        mag_msg->magnetic_field.z = imu_data.magnetic_field.z;
+        // mag_msg->magnetic_field.x = imu_data.magnetic_field.x;
+        // mag_msg->magnetic_field.y = imu_data.magnetic_field.y;
+        // mag_msg->magnetic_field.z = imu_data.magnetic_field.z;
 
         mag_publisher_->publish(std::move(mag_msg));
 
@@ -225,9 +225,9 @@ private:
         odom_msg->pose.pose.orientation.z = camera_pose.getOrientation().z;
         odom_msg->pose.pose.orientation.w = camera_pose.getOrientation().w;
 
-        odom_msg->twist.twist.linear.x = camera_pose.getVelocity().x;
-        odom_msg->twist.twist.linear.y = camera_pose.getVelocity().y;
-        odom_msg->twist.twist.linear.z = camera_pose.getVelocity().z;
+        // odom_msg->twist.twist.linear.x = camera_pose.getVelocity().x;
+        // odom_msg->twist.twist.linear.y = camera_pose.getVelocity().y;
+        // odom_msg->twist.twist.linear.z = camera_pose.getVelocity().z;
         odom_msg->twist.twist.angular.x = camera_pose.getEulerAngles().x;
         odom_msg->twist.twist.angular.y = camera_pose.getEulerAngles().y;
         odom_msg->twist.twist.angular.z = camera_pose.getEulerAngles().z;
