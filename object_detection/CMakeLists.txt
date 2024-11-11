@@ -83,6 +83,7 @@ ament_target_dependencies(object_detection
   rover_msgs
   image_transport
   sensor_msgs
+  nav_msgs
 )
 
 # Install targets

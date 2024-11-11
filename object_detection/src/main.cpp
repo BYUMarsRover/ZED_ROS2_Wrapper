@@ -19,6 +19,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/magnetic_field.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <rover_msgs/msg/object_detections.hpp>
 #include <rover_msgs/msg/object_detection.hpp>
 
@@ -70,9 +71,19 @@ public:
         std::cout << "Initialized object detection" << std::endl;
 
         setup_node();
-        
+
         // Timer for the detection loop
         timer_ = this->create_wall_timer(std::chrono::milliseconds(16), std::bind(&ObjectDetectionNode::processFrame, this));
+
+        /* SETUP IMU, MAG, ODOM Publishers */
+        imu_publisher_ = this->create_publisher<sensor_msgs::msg::Imu>("zed/imu/data", 10);
+        mag_publisher_ = this->create_publisher<sensor_msgs::msg::MagneticField>("zed/imu/mag", 10);
+        odom_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("zed/zed_node/odom", 10);
+
+        //TODO: TEST this timer to run seperately from the zed obstacles
+        // timer_ = this->create_wall_timer(
+        //     std::chrono::milliseconds(10), std::bind(&ZEDPublisher::publish_data, this));
+        
 
     }
 
@@ -152,7 +163,72 @@ private:
             zed.retrieveImage(left_sl, sl::VIEW::LEFT);
             /* Object detections */
             publishDetections();
+
+            publish_sensor_data();
+
         }
+    }
+
+    void publish_sensor_data(){
+        sl::SensorsData sensors_data;
+        sl::Pose camera_pose;
+
+        zed_.getSensorsData(sensors_data, sl::TIME_REFERENCE::CURRENT);
+        zed_.getPosition(camera_pose, sl::REFERENCE_FRAME::WORLD);
+
+        auto current_timestamp = this->now();
+
+        // Publish IMU data
+        auto imu_msg = std::make_unique<sensor_msgs::msg::Imu>();
+        imu_msg->header.stamp = current_timestamp;
+        imu_msg->header.frame_id = "zed_imu_link";
+
+        auto imu_data = sensors_data.imu;
+        imu_msg->orientation.x = imu_data.pose.getOrientation().x;
+        imu_msg->orientation.y = imu_data.pose.getOrientation().y;
+        imu_msg->orientation.z = imu_data.pose.getOrientation().z;
+        imu_msg->orientation.w = imu_data.pose.getOrientation().w;
+        imu_msg->angular_velocity.x = imu_data.angular_velocity.x;
+        imu_msg->angular_velocity.y = imu_data.angular_velocity.y;
+        imu_msg->angular_velocity.z = imu_data.angular_velocity.z;
+        imu_msg->linear_acceleration.x = imu_data.linear_acceleration.x;
+        imu_msg->linear_acceleration.y = imu_data.linear_acceleration.y;
+        imu_msg->linear_acceleration.z = imu_data.linear_acceleration.z;
+
+        imu_publisher_->publish(std::move(imu_msg));
+
+        // Publish magnetometer data
+        auto mag_msg = std::make_unique<sensor_msgs::msg::MagneticField>();
+        mag_msg->header.stamp = current_timestamp;
+        mag_msg->header.frame_id = "zed_imu_link";
+        mag_msg->magnetic_field.x = imu_data.magnetic_field.x;
+        mag_msg->magnetic_field.y = imu_data.magnetic_field.y;
+        mag_msg->magnetic_field.z = imu_data.magnetic_field.z;
+
+        mag_publisher_->publish(std::move(mag_msg));
+
+        // Publish odometry data
+        auto odom_msg = std::make_unique<nav_msgs::msg::Odometry>();
+        odom_msg->header.stamp = current_timestamp;
+        odom_msg->header.frame_id = "odom";
+        odom_msg->child_frame_id = "zed_base_link";
+
+        odom_msg->pose.pose.position.x = camera_pose.getTranslation().x;
+        odom_msg->pose.pose.position.y = camera_pose.getTranslation().y;
+        odom_msg->pose.pose.position.z = camera_pose.getTranslation().z;
+        odom_msg->pose.pose.orientation.x = camera_pose.getOrientation().x;
+        odom_msg->pose.pose.orientation.y = camera_pose.getOrientation().y;
+        odom_msg->pose.pose.orientation.z = camera_pose.getOrientation().z;
+        odom_msg->pose.pose.orientation.w = camera_pose.getOrientation().w;
+
+        odom_msg->twist.twist.linear.x = camera_pose.getVelocity().x;
+        odom_msg->twist.twist.linear.y = camera_pose.getVelocity().y;
+        odom_msg->twist.twist.linear.z = camera_pose.getVelocity().z;
+        odom_msg->twist.twist.angular.x = camera_pose.getEulerAngles().x;
+        odom_msg->twist.twist.angular.y = camera_pose.getEulerAngles().y;
+        odom_msg->twist.twist.angular.z = camera_pose.getEulerAngles().z;
+
+        odom_publisher_->publish(std::move(odom_msg));
     }
 
     void publishDetections() {
@@ -222,6 +298,13 @@ private:
     rclcpp::Publisher<rover_msgs::msg::ObjectDetections>::SharedPtr object_detection_pub_;
     image_transport::Publisher detection_annotation_;
     rclcpp::TimerBase::SharedPtr timer_;
+
+    rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher_;
+    rclcpp::Publisher<sensor_msgs::msg::MagneticField>::SharedPtr mag_publisher_;
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
+    //TODO: Test second timer to run timing of objects and data independently
+    // rclcpp::TimerBase::SharedPtr timer_;
+
 };
 
 
