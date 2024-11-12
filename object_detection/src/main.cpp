@@ -32,6 +32,45 @@ using namespace nvinfer1;
 #define RAD2DEG 57.295777937
 #endif
 
+// Basic structure to compare timestamps of a sensor. Determines if a specific sensor data has been updated or not.
+struct TimestampHandler {
+
+    // Compare the new timestamp to the last valid one. If it is higher, save it as new reference.
+    inline bool isNew(sl::Timestamp& ts_curr, sl::Timestamp& ts_ref) {
+        bool new_ = ts_curr > ts_ref;
+        if (new_) ts_ref = ts_curr;
+        return new_;
+    }
+    // Specific function for IMUData.
+    inline bool isNew(sl::SensorsData::IMUData& imu_data) {
+        return isNew(imu_data.timestamp, ts_imu);
+    }
+    // Specific function for MagnetometerData.
+    inline bool isNew(sl::SensorsData::MagnetometerData& mag_data) {
+        return isNew(mag_data.timestamp, ts_mag);
+    }
+    // Specific function for BarometerData.
+    inline bool isNew(sl::SensorsData::BarometerData& baro_data) {
+        return isNew(baro_data.timestamp, ts_baro);
+    }
+
+    sl::Timestamp ts_imu = 0, ts_baro = 0, ts_mag = 0; // Initial values
+};
+
+
+// Function to display sensor parameters.
+void printSensorConfiguration(SensorParameters& sensor_parameters) {
+    if (sensor_parameters.isAvailable) {
+        cout << "*****************************" << endl;
+        cout << "Sensor Type: " << sensor_parameters.type << endl;
+        cout << "Max Rate: "    << sensor_parameters.sampling_rate << SENSORS_UNIT::HERTZ << endl;
+        cout << "Range: ["      << sensor_parameters.range << "] " << sensor_parameters.sensor_unit << endl;
+        cout << "Resolution: "  << sensor_parameters.resolution << " " << sensor_parameters.sensor_unit << endl;
+        if (isfinite(sensor_parameters.noise_density)) cout << "Noise Density: " << sensor_parameters.noise_density <<" "<< sensor_parameters.sensor_unit<<"/√Hz"<<endl;
+        if (isfinite(sensor_parameters.random_walk)) cout << "Random Walk: " << sensor_parameters.random_walk <<" "<< sensor_parameters.sensor_unit<<"/s/√Hz"<<endl;
+    }
+} 
+
 
 class ObjectDetectionNode : public rclcpp::Node {
 public:
@@ -71,8 +110,8 @@ public:
         odom_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("zed/zed_node/odom", 10);
 
         //TODO: TEST this timer to run seperately from the zed obstacles
-        // timer_ = this->create_wall_timer(
-        //     std::chrono::milliseconds(10), std::bind(&ZEDPublisher::publish_data, this));
+        timer_sensors_ = this->create_wall_timer(
+            std::chrono::milliseconds(10), std::bind(&ObjectDetectionNode::publish_sensor_data, this));
         
     }
 
@@ -168,10 +207,11 @@ private:
             /* Object detections */
             publishDetections();
 
-            publish_sensor_data();
-
+            // publish_sensor_data();
         }
     }
+
+
 
     void publish_sensor_data(){
         sl::SensorsData sensors_data;
@@ -179,6 +219,17 @@ private:
 
         zed.getSensorsData(sensors_data, sl::TIME_REFERENCE::CURRENT);
         zed.getPosition(camera_pose, sl::REFERENCE_FRAME::WORLD);
+
+        if (ts.isNew(sensors_data.imu)) {
+            std::cout << "IMU Orientation: {" << sensors_data.imu.pose.getOrientation() << "}" << std::endl;
+            std::cout << "IMU Linear Acceleration: {" << sensors_data.imu.linear_acceleration << "} [m/sec^2]" << std::endl;
+            std::cout << "IMU Angular Velocity: {" << sensors_data.imu.angular_velocity << "} [deg/sec]" << std::endl;
+        }
+
+        // Check if Magnetometer data has been updated
+        // if (ts.isNew(sensors_data.magnetometer)) {
+        std::cout << " Magnetometer Magnetic Field: {" << sensors_data.magnetometer.magnetic_field_calibrated << "} [uT]" << std::endl;
+        // }
 
         auto current_timestamp = this->now();
 
@@ -188,6 +239,7 @@ private:
         imu_msg->header.frame_id = "zed_imu_link";
 
         auto imu_data = sensors_data.imu;
+        auto mag_data = sensors_data.magnetometer;
         imu_msg->orientation.x = imu_data.pose.getOrientation().x;
         imu_msg->orientation.y = imu_data.pose.getOrientation().y;
         imu_msg->orientation.z = imu_data.pose.getOrientation().z;
@@ -205,9 +257,9 @@ private:
         auto mag_msg = std::make_unique<sensor_msgs::msg::MagneticField>();
         mag_msg->header.stamp = current_timestamp;
         mag_msg->header.frame_id = "zed_imu_link";
-        // mag_msg->magnetic_field.x = imu_data.magnetic_field.x;
-        // mag_msg->magnetic_field.y = imu_data.magnetic_field.y;
-        // mag_msg->magnetic_field.z = imu_data.magnetic_field.z;
+        mag_msg->magnetic_field.x = mag_data.magnetic_field_calibrated.x;
+        mag_msg->magnetic_field.y = mag_data.magnetic_field_calibrated.y;
+        mag_msg->magnetic_field.z = mag_data.magnetic_field_calibrated.z;
 
         mag_publisher_->publish(std::move(mag_msg));
 
@@ -337,6 +389,8 @@ private:
     rclcpp::TimerBase::SharedPtr timer_;
 
     float conf_thresh;
+
+    TimestampHandler ts;  //TODO: get the time stamp handler to only publish new data
 
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher_;
     rclcpp::Publisher<sensor_msgs::msg::MagneticField>::SharedPtr mag_publisher_;
