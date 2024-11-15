@@ -26,6 +26,7 @@ find_package(rclcpp REQUIRED)
 find_package(rover_msgs REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(nav_msgs REQUIRED)
 # find_package(TensorRT REQUIRED)
 
@@ -85,6 +86,7 @@ ament_target_dependencies(object_detection
   image_transport
   sensor_msgs
   nav_msgs
+  std_srvs
 )
 
 # Install targets

@@ -22,6 +22,8 @@
 #include <rover_msgs/msg/object_detections.hpp>
 #include <rover_msgs/msg/object_detection.hpp>
 
+//Testing service to start detections
+#include <std_srvs/srv/set_bool.hpp>
 
 
 using namespace nvinfer1;
@@ -57,7 +59,6 @@ struct TimestampHandler {
     sl::Timestamp ts_imu = 0, ts_baro = 0, ts_mag = 0; // Initial values
 };
 
-
 // Function to display sensor parameters.
 void printSensorConfiguration(SensorParameters& sensor_parameters) {
     if (sensor_parameters.isAvailable) {
@@ -76,10 +77,9 @@ class ObjectDetectionNode : public rclcpp::Node {
 public:
     ObjectDetectionNode() : Node("object_detection") {
         // Publishers
-        // rclcpp::Node::SharedPtr node = rclcpp::Node::make_shared("image_publisher");
-        // image_transport::ImageTransport it(node);
-        // image_transport::Publisher detection_annotation_ = it.advertise("/object_detection/annotated", 1);
-        // detection_annotation_ = image_transport::ImageTransport(this).advertise("/object_detection/annotated", 1);
+        image_transport::ImageTransport it(this->shared_from_this());
+        detection_annotation_ = it.advertise("/object_detection/annotated", 10);
+
         object_detection_pub_ = this->create_publisher<rover_msgs::msg::ObjectDetections>("/object_detection", 10);
         
         // Declare the 'engine_name' parameter with an empty string as the default value
@@ -90,6 +90,10 @@ public:
         int process_period_ms;      
         this->declare_parameter<int>("process_period_ms", 2000);
         this->get_parameter("process_period_ms", process_period_ms);
+        // Period in milliseconds for sensor data
+        int sensor_process_period_ms;      
+        this->declare_parameter<int>("process_period_ms", 20);
+        this->get_parameter("sensor_process_period_ms", sensor_process_period_ms);
 
         this->declare_parameter<float>("confidence_thresh", 0.3);
         this->get_parameter("confidence_thresh", this->conf_thresh);
@@ -111,7 +115,13 @@ public:
 
         //TODO: TEST this timer to run seperately from the zed obstacles
         timer_sensors_ = this->create_wall_timer(
-            std::chrono::milliseconds(10), std::bind(&ObjectDetectionNode::publish_sensor_data, this));
+            std::chrono::milliseconds(sensor_process_period_ms), std::bind(&ObjectDetectionNode::process_ZED_data, this));
+
+        //Testing service call to start the object detection
+        service_ = this->create_service<std_srvs::srv::SetBool>(
+            "toggle_object_detection",
+            std::bind(&ObjectDetectionNode::handleToggleDetect, this, std::placeholders::_1, std::placeholders::_2)
+        );
         
     }
 
@@ -198,8 +208,18 @@ private:
         
     }
     
-    
+    void handleToggleDetect(const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
+                                std::shared_ptr<std_srvs::srv::SetBool::Response> response){
+        run_detector_ = request->data;
+        response->success = true;
+        response->message = run_detector_ ? "Detection enabled" : "Detection disabled";
+        RCLCPP_INFO(this->get_logger(), "Toggled Detection: %s", response->message.c_str());
+    }
+
     void processFrame() {
+        if (!run_detector_) {
+            return;  // Do nothing if detections is disabled
+        }
         // Grab image from ZED and process detections
         if (zed.grab() == sl::ERROR_CODE::SUCCESS) {
             /* Left image */
@@ -211,7 +231,11 @@ private:
         }
     }
 
-
+    void process_ZED_data(){
+        if (zed.grab() == sl::ERROR_CODE::SUCCESS) {
+            publish_sensor_data();
+        }
+    }
 
     void publish_sensor_data(){
         sl::SensorsData sensors_data;
@@ -291,10 +315,10 @@ private:
         // Running inference
         //CHECK TO MAKE SURE: THIS MIGHT NEED TO RUN ONLY WHEN WE WANT IT TO hence the subscriber count
         zed.retrieveImage(left_sl, sl::VIEW::LEFT);
-        // Convert the sl::Mat to cv::Mat
    
         auto detections = detector_.run(left_sl, display_resolution_.height, display_resolution_.width, this->conf_thresh);
         
+        // Convert the sl::Mat to cv::Mat
         left_cv_ = slMat2cvMat(left_sl);
 
         // Preparing for ZED SDK ingesting
@@ -347,20 +371,20 @@ private:
         // TODO: WE MIGHT NEED THE CVT FUNCTION IN HERE FOR ANNotations??
         // THE OLD CODE LOOKS A LITTLE DIFFERENT BELOW THIS
         // Annotate and publish image
-        if (detection_annotation_.getNumSubscribers() > 0) {
-            left_cv_ = slMat2cvMat(left_sl);
-            for (const auto& detection : detections) {
-                cv::Rect r = get_rect(detection.box);
-                cv::rectangle(left_cv_, r, cv::Scalar(0x27, 0xC1, 0x36), 2);
-                cv::putText(left_cv_, std::to_string(static_cast<int>(detection.label)), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
-            }
-            
-            std_msgs::msg::Header header;
-            header.stamp = this->now(); // Set the current time
-            header.frame_id = "object_detection"; // Set appropriate frame ID
-            cv_bridge::CvImage annotated_img(header, sensor_msgs::image_encodings::TYPE_8UC4, left_cv_);
-            detection_annotation_.publish(annotated_img.toImageMsg());
+        // if (detection_annotation_.getNumSubscribers() > 0) {
+        left_cv_ = slMat2cvMat(left_sl);
+        for (const auto& detection : detections) {
+            cv::Rect r = get_rect(detection.box);
+            cv::rectangle(left_cv_, r, cv::Scalar(0x27, 0xC1, 0x36), 2);
+            cv::putText(left_cv_, std::to_string(static_cast<int>(detection.label)), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
         }
+        
+        std_msgs::msg::Header header;
+        header.stamp = this->now(); // Set the current time
+        header.frame_id = "object_detection"; // Set appropriate frame ID
+        cv_bridge::CvImage annotated_img(header, sensor_msgs::image_encodings::TYPE_8UC4, left_cv_);
+        detection_annotation_.publish(annotated_img.toImageMsg());
+        // }
 
 
     }
@@ -376,7 +400,6 @@ private:
 
     /* Resolution calcualations */
     sl::Resolution resolution;
-
 
     sl::Mat left_sl, point_cloud;
     sl::Pose cam_w_pose = sl::Pose();
@@ -398,6 +421,12 @@ private:
     //TODO: Test second timer to run timing of objects and data independently
     // rclcpp::TimerBase::SharedPtr timer_;
 
+
+    //IMAGE TRANSPORT
+    image_transport::Publisher detection_annotation_;
+    
+    rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr service_;
+    bool run_detector_ = false; //Flag to run object detection
 };
 
 
