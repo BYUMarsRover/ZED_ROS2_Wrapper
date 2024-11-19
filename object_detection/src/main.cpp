@@ -18,6 +18,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/magnetic_field.hpp>
+#include <sensor_msgs/image_encodings.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rover_msgs/msg/object_detections.hpp>
 #include <rover_msgs/msg/object_detection.hpp>
@@ -78,8 +79,8 @@ class ObjectDetectionNode : public rclcpp::Node {
 public:
     ObjectDetectionNode() : Node("object_detection") {
         // Publishers
-        image_transport::ImageTransport it(this->shared_from_this());
-        detection_annotation_ = it.advertise("/object_detection/annotated", 10);
+        
+        detection_annotation_ = image_transport::create_publisher(this, "/object_detection/annotated");
 
         object_detection_pub_ = this->create_publisher<rover_msgs::msg::ObjectDetections>("/object_detection", 10);
         
@@ -380,12 +381,15 @@ private:
             cv::putText(left_cv_, std::to_string(static_cast<int>(detection.label)), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
         }
         
-        std_msgs::msg::Header header;
-        header.stamp = this->now(); // Set the current time
-        header.frame_id = "object_detection"; // Set appropriate frame ID
-        cv_bridge::CvImage annotated_img(header, sensor_msgs::image_encodings::TYPE_8UC4, left_cv_);
-        detection_annotation_.publish(annotated_img.toImageMsg());
-        // }
+        sensor_msgs::msg::Image::SharedPtr msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", left_cv_).toImageMsg();
+        detection_annotation_.publish(msg);
+        RCLCPP_INFO(this->get_logger(), "Published image");
+
+        // std_msgs::msg::Header header;
+        // header.stamp = this->now(); // Set the current time
+        // header.frame_id = "object_detection"; // Set appropriate frame ID
+        // cv_bridge::CvImage annotated_img(header, sensor_msgs::image_encodings::TYPE_8UC4, left_cv_);
+        // detection_annotation_.publish(annotated_img.toImageMsg());
 
 
     }
