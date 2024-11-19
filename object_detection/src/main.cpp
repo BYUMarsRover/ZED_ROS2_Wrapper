@@ -94,7 +94,7 @@ public:
         this->get_parameter("process_period_ms", process_period_ms);
         // Period in milliseconds for sensor data
         int sensor_process_period_ms;      
-        this->declare_parameter<int>("process_period_ms", 20);
+        this->declare_parameter<int>("sensor_process_period_ms", 20);
         this->get_parameter("sensor_process_period_ms", sensor_process_period_ms);
 
         this->declare_parameter<float>("confidence_thresh", 0.3);
