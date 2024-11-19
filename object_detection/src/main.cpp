@@ -60,15 +60,16 @@ struct TimestampHandler {
 };
 
 // Function to display sensor parameters.
-void printSensorConfiguration(SensorParameters& sensor_parameters) {
+void printSensorConfiguration(sl::SensorParameters& sensor_parameters) {
     if (sensor_parameters.isAvailable) {
-        cout << "*****************************" << endl;
-        cout << "Sensor Type: " << sensor_parameters.type << endl;
-        cout << "Max Rate: "    << sensor_parameters.sampling_rate << SENSORS_UNIT::HERTZ << endl;
-        cout << "Range: ["      << sensor_parameters.range << "] " << sensor_parameters.sensor_unit << endl;
-        cout << "Resolution: "  << sensor_parameters.resolution << " " << sensor_parameters.sensor_unit << endl;
-        if (isfinite(sensor_parameters.noise_density)) cout << "Noise Density: " << sensor_parameters.noise_density <<" "<< sensor_parameters.sensor_unit<<"/√Hz"<<endl;
-        if (isfinite(sensor_parameters.random_walk)) cout << "Random Walk: " << sensor_parameters.random_walk <<" "<< sensor_parameters.sensor_unit<<"/s/√Hz"<<endl;
+        std::cout << "*****************************" << std::endl;
+        std::cout << "Sensor Type: " << sensor_parameters.type << std::endl;
+        // std::cout << "Max Rate: "    << sensor_parameters.sampling_rate << SENSORS_UNIT::HERTZ << std::endl;
+        std::cout << "Max Rate: "    << sensor_parameters.sampling_rate << std::endl;
+        std::cout << "Range: ["      << sensor_parameters.range << "] " << sensor_parameters.sensor_unit << std::endl;
+        std::cout << "Resolution: "  << sensor_parameters.resolution << " " << sensor_parameters.sensor_unit << std::endl;
+        if (isfinite(sensor_parameters.noise_density)) std::cout << "Noise Density: " << sensor_parameters.noise_density <<" "<< sensor_parameters.sensor_unit<<"/√Hz"<<std::endl;
+        if (isfinite(sensor_parameters.random_walk)) std::cout << "Random Walk: " << sensor_parameters.random_walk <<" "<< sensor_parameters.sensor_unit<<"/s/√Hz"<<std::endl;
     }
 } 
 
@@ -408,8 +409,8 @@ private:
     // std::string imu_frame_id = "zed2i_imu_link";    
 
     rclcpp::Publisher<rover_msgs::msg::ObjectDetections>::SharedPtr object_detection_pub_;
-    image_transport::Publisher detection_annotation_;
     rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::TimerBase::SharedPtr timer_sensors_;
 
     float conf_thresh;
 
