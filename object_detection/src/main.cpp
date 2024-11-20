@@ -129,21 +129,21 @@ public:
 
 private:
 
-    void setup_yolo(std::string engine_name){
+    void setup_yolo(std::string engine_name) {
         /* Custom YOLOv8 model initialization */
         if (!engine_name.empty()) {
-            std::cout << "Using YOLOv8 model engine: " << engine_name.c_str() << std::endl;
+            RCLCPP_INFO(this->get_logger(), "Using YOLOv8 model engine: %s", engine_name.c_str());
         } else {
-            std::cout << "No YOLOv8 model engine specified." << std::endl;
+            RCLCPP_ERROR(this->get_logger(), "No YOLOv8 model engine specified.");
             throw std::runtime_error("Engine not specified.");
             return;
         }
         if (detector_.init(engine_name)) {
-            std::cout << "Detector init failed!" << std::endl;
+            RCLCPP_ERROR(this->get_logger(), "Detector initialization failed!");
             throw std::runtime_error("Detector init failed");
             return;
         }
-        std::cout << "Initialized object detection" << std::endl;
+        RCLCPP_INFO(this->get_logger(), "Initialized object detection");
     }
 
     cv::Rect get_rect(BBox box) {
@@ -166,7 +166,6 @@ private:
         // left_camera_info_msg.reset(new sensor_msgs::CameraInfo());
         // std::string left_camera_frame_id = "zed2i_left_camera_optical_frame";
         
-
         /* ZED camera initializaion */
         // Opening the ZED camera before the model deserialization to avoid cuda context issue
         
@@ -174,7 +173,8 @@ private:
         init_parameters.input.setFromSerialNumber(20382332);
         init_parameters.depth_mode = sl::DEPTH_MODE::ULTRA;
 
-        std::cout << std::to_string(zed.getCameraInformation().serial_number) << std::endl;
+        RCLCPP_INFO(this->get_logger(), "Camera serial number: %s", std::to_string(zed.getCameraInformation().serial_number).c_str());
+
 
         // Open the camera
         auto returned_state = zed.open(init_parameters);
@@ -203,7 +203,7 @@ private:
         sl::Resolution pc_resolution(std::min((int) camera_config.resolution.width, 720), std::min((int) camera_config.resolution.height, 404));
         auto camera_info = zed.getCameraInformation(pc_resolution).camera_configuration;
 
-        std::cout << "Initialized ZED camera" << std::endl;
+        RCLCPP_INFO(this->get_logger(),"Initialized ZED camera");
 
         /* Object detection data initialization */
         display_resolution_ = zed.getCameraInformation().camera_configuration.resolution;
@@ -236,20 +236,52 @@ private:
     void process_ZED_data(){
         if (zed.grab() == sl::ERROR_CODE::SUCCESS) {
             publish_sensor_data();
+            publish_position_data();
         }
     }
 
+    void publish_position_data(){
+        // Publish odometry data
+        auto current_timestamp = this->now();
+        sl::Pose camera_pose;
+        zed.getPosition(camera_pose, sl::REFERENCE_FRAME::WORLD);
+
+        auto odom_msg = std::make_unique<nav_msgs::msg::Odometry>();
+        odom_msg->header.stamp = current_timestamp;
+        odom_msg->header.frame_id = "odom";
+        odom_msg->child_frame_id = "zed_base_link";
+
+        odom_msg->pose.pose.position.x = camera_pose.getTranslation().x;
+        odom_msg->pose.pose.position.y = camera_pose.getTranslation().y;
+        odom_msg->pose.pose.position.z = camera_pose.getTranslation().z;
+        odom_msg->pose.pose.orientation.x = camera_pose.getOrientation().x;
+        odom_msg->pose.pose.orientation.y = camera_pose.getOrientation().y;
+        odom_msg->pose.pose.orientation.z = camera_pose.getOrientation().z;
+        odom_msg->pose.pose.orientation.w = camera_pose.getOrientation().w;
+
+        // odom_msg->twist.twist.linear.x = camera_pose.getVelocity().x;
+        // odom_msg->twist.twist.linear.y = camera_pose.getVelocity().y;
+        // odom_msg->twist.twist.linear.z = camera_pose.getVelocity().z;
+        // odom_msg->twist.twist.angular.x = camera_pose.getEulerAngles().x;
+        // odom_msg->twist.twist.angular.y = camera_pose.getEulerAngles().y;
+        // odom_msg->twist.twist.angular.z = camera_pose.getEulerAngles().z;
+
+        odom_publisher_->publish(std::move(odom_msg));
+    }
+    
     void publish_sensor_data(){
         sl::SensorsData sensors_data;
-        sl::Pose camera_pose;
 
         zed.getSensorsData(sensors_data, sl::TIME_REFERENCE::CURRENT);
-        zed.getPosition(camera_pose, sl::REFERENCE_FRAME::WORLD);
 
         if (ts.isNew(sensors_data.imu)) {
             std::cout << "IMU Orientation: {" << sensors_data.imu.pose.getOrientation() << "}" << std::endl;
             std::cout << "IMU Linear Acceleration: {" << sensors_data.imu.linear_acceleration << "} [m/sec^2]" << std::endl;
             std::cout << "IMU Angular Velocity: {" << sensors_data.imu.angular_velocity << "} [deg/sec]" << std::endl;
+        }
+        else{
+            std::cout << "No new sensor data this update" << std::endl;
+            return;
         }
 
         // Check if Magnetometer data has been updated
@@ -288,29 +320,6 @@ private:
         mag_msg->magnetic_field.z = mag_data.magnetic_field_calibrated.z;
 
         mag_publisher_->publish(std::move(mag_msg));
-
-        // Publish odometry data
-        auto odom_msg = std::make_unique<nav_msgs::msg::Odometry>();
-        odom_msg->header.stamp = current_timestamp;
-        odom_msg->header.frame_id = "odom";
-        odom_msg->child_frame_id = "zed_base_link";
-
-        odom_msg->pose.pose.position.x = camera_pose.getTranslation().x;
-        odom_msg->pose.pose.position.y = camera_pose.getTranslation().y;
-        odom_msg->pose.pose.position.z = camera_pose.getTranslation().z;
-        odom_msg->pose.pose.orientation.x = camera_pose.getOrientation().x;
-        odom_msg->pose.pose.orientation.y = camera_pose.getOrientation().y;
-        odom_msg->pose.pose.orientation.z = camera_pose.getOrientation().z;
-        odom_msg->pose.pose.orientation.w = camera_pose.getOrientation().w;
-
-        // odom_msg->twist.twist.linear.x = camera_pose.getVelocity().x;
-        // odom_msg->twist.twist.linear.y = camera_pose.getVelocity().y;
-        // odom_msg->twist.twist.linear.z = camera_pose.getVelocity().z;
-        odom_msg->twist.twist.angular.x = camera_pose.getEulerAngles().x;
-        odom_msg->twist.twist.angular.y = camera_pose.getEulerAngles().y;
-        odom_msg->twist.twist.angular.z = camera_pose.getEulerAngles().z;
-
-        odom_publisher_->publish(std::move(odom_msg));
     }
 
     void publishDetections() {
@@ -363,7 +372,7 @@ private:
                 detection.z = object.position.z;
                 detection.confidence = object.confidence;
                 msg.objects.push_back(detection);
-                // std::cout << "Object Detected" << std::endl;
+                std::cout << "Object Detected" << std::endl;
             }
 
             object_detection_pub_->publish(msg);
@@ -373,25 +382,24 @@ private:
         // TODO: WE MIGHT NEED THE CVT FUNCTION IN HERE FOR ANNotations??
         // THE OLD CODE LOOKS A LITTLE DIFFERENT BELOW THIS
         // Annotate and publish image
-        // if (detection_annotation_.getNumSubscribers() > 0) {
-        left_cv_ = slMat2cvMat(left_sl);
-        for (const auto& detection : detections) {
-            cv::Rect r = get_rect(detection.box);
-            cv::rectangle(left_cv_, r, cv::Scalar(0x27, 0xC1, 0x36), 2);
-            cv::putText(left_cv_, std::to_string(static_cast<int>(detection.label)), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
+        if (detection_annotation_.getNumSubscribers() > 0) {
+            left_cv_ = slMat2cvMat(left_sl);
+            for (const auto& detection : detections) {
+                cv::Rect r = get_rect(detection.box);
+                cv::rectangle(left_cv_, r, cv::Scalar(0x27, 0xC1, 0x36), 2);
+                cv::putText(left_cv_, std::to_string(static_cast<int>(detection.label)), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
+            }
+            
+            sensor_msgs::msg::Image::SharedPtr msg = cv_bridge::CvImage(std_msgs::msg::Header(), sensor_msgs::image_encodings::TYPE_8UC4, left_cv_).toImageMsg();
+            // std_msgs::msg::Header header;
+            msg.header.stamp = this->now(); // Set the current time
+            detection_annotation_.publish(msg);
+            std::cout << "Published image"  << std::endl;
+
+            // header.frame_id = "object_detection"; // Set appropriate frame ID
+            // cv_bridge::CvImage annotated_img(header, sensor_msgs::image_encodings::TYPE_8UC4, left_cv_);
+            // detection_annotation_.publish(annotated_img.toImageMsg());
         }
-        
-        sensor_msgs::msg::Image::SharedPtr msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", left_cv_).toImageMsg();
-        detection_annotation_.publish(msg);
-        RCLCPP_INFO(this->get_logger(), "Published image");
-
-        // std_msgs::msg::Header header;
-        // header.stamp = this->now(); // Set the current time
-        // header.frame_id = "object_detection"; // Set appropriate frame ID
-        // cv_bridge::CvImage annotated_img(header, sensor_msgs::image_encodings::TYPE_8UC4, left_cv_);
-        // detection_annotation_.publish(annotated_img.toImageMsg());
-
-
     }
 
     // Member variables
