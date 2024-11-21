@@ -392,7 +392,7 @@ private:
             
             sensor_msgs::msg::Image::SharedPtr msg = cv_bridge::CvImage(std_msgs::msg::Header(), sensor_msgs::image_encodings::TYPE_8UC4, left_cv_).toImageMsg();
             // std_msgs::msg::Header header;
-            msg.header.stamp = this->now(); // Set the current time
+            // msg.header.stamp = this->now(); // Set the current time
             detection_annotation_.publish(msg);
             std::cout << "Published image"  << std::endl;
 
