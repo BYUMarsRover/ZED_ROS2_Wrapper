@@ -10,17 +10,21 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <test_depend>ament_lint_auto</test_depend>
-  <test_depend>ament_lint_common</test_depend>
+  <exec_depend>ament_lint_auto</exec_depend>
+  <exec_depend>ament_lint_common</exec_depend>
 
   <depend>rclcpp</depend>
-  <depend>rover_msgs</depend>
-  <depend>nav_msgs</depend>
-  <depend>image_transport</depend>
-  <depend>cv_bridge</depend>
-  <depend>sensor_msgs</depend>
-  <build_depend>tensorrt</build_depend>
-  <exec_depend>tensorrt</exec_depend>
+  <exec_depend>rover_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>image_transport</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+
+  <!-- Make sure rosidl_default_runtime is included if you're using ROS 2 interfaces -->
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <!-- <build_depend>tensorrt</build_depend>
+  <exec_depend>tensorrt</exec_depend> -->
   
 
   <export>

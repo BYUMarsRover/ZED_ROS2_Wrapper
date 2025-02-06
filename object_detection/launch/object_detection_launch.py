@@ -14,6 +14,7 @@ def generate_launch_description():
             package='object_detection',
             executable='object_detection',
             name='object_detection',
+            namespace='zed',
             # output='screen',
             parameters=[params_file],
         ),

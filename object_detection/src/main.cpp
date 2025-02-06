@@ -80,9 +80,9 @@ public:
     ObjectDetectionNode() : Node("object_detection") {
         // Publishers
         
-        detection_annotation_ = image_transport::create_publisher(this, "/object_detection/annotated");
+        detection_annotation_ = image_transport::create_publisher(this, "object_detection/annotated");
 
-        object_detection_pub_ = this->create_publisher<rover_msgs::msg::ObjectDetections>("/object_detection", 10);
+        object_detection_pub_ = this->create_publisher<rover_msgs::msg::ObjectDetections>("object_detection", 10);
         
         // Declare the 'engine_name' parameter with an empty string as the default value
         this->declare_parameter<std::string>("engine_name", "");
@@ -111,9 +111,9 @@ public:
 
 
         /* SETUP IMU, MAG, ODOM Publishers */
-        imu_publisher_ = this->create_publisher<sensor_msgs::msg::Imu>("zed/imu/data", 10);
-        mag_publisher_ = this->create_publisher<sensor_msgs::msg::MagneticField>("zed/imu/mag", 10);
-        odom_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("zed/zed_node/odom", 10);
+        imu_publisher_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
+        mag_publisher_ = this->create_publisher<sensor_msgs::msg::MagneticField>("imu/mag", 10);
+        odom_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 10);
 
         //TODO: TEST this timer to run seperately from the zed obstacles
         timer_sensors_ = this->create_wall_timer(
@@ -121,7 +121,7 @@ public:
 
         //Testing service call to start the object detection
         service_ = this->create_service<std_srvs::srv::SetBool>(
-            "toggle_object_detection",
+            "/toggle_object_detection",
             std::bind(&ObjectDetectionNode::handleToggleDetect, this, std::placeholders::_1, std::placeholders::_2)
         );
         
@@ -460,7 +460,7 @@ private:
             
             sensor_msgs::msg::Image::SharedPtr msg = cv_bridge::CvImage(std_msgs::msg::Header(), sensor_msgs::image_encodings::TYPE_8UC4, left_cv_).toImageMsg();
             // std_msgs::msg::Header header;
-            msg.header.stamp = this->now(); // Set the current time
+            // msg.header.stamp = this->now(); // Set the current time
             detection_annotation_.publish(msg);
             std::cout << "Published image"  << std::endl;
 
