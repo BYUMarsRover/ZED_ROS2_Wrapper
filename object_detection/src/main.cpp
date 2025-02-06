@@ -169,9 +169,14 @@ private:
         /* ZED camera initializaion */
         // Opening the ZED camera before the model deserialization to avoid cuda context issue
         
+        sl::InitParameters init_parameters;
         init_parameters.sdk_verbose = true;
         init_parameters.input.setFromSerialNumber(20382332);
         init_parameters.depth_mode = sl::DEPTH_MODE::ULTRA;
+        // TODO: Check if this works
+        init_parameters.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FORWARD;
+        //CHECK THAT METER WAS THE DEFAULT
+        init_parameters.coordinate_units = sl::UNIT::METER;
 
         RCLCPP_INFO(this->get_logger(), "Camera serial number: %s", std::to_string(zed.getCameraInformation().serial_number).c_str());
 
@@ -183,7 +188,70 @@ private:
             throw std::runtime_error("Camera initialization failed.");
             return;
         }
-        zed.enablePositionalTracking();
+
+        // Start Postional Tracking with parameters
+        sl::PositionalTrackingParameters pose_tracking_params;
+        pose_tracking_params.mode = sl::POSITIONAL_TRACKING_MODE::GEN_2;
+        pose_tracking_params.enable_area_memory = false;
+        auto positional_init = zed.enablePositionalTracking(pose_tracking_params);
+        if (positional_init != sl::ERROR_CODE::SUCCESS) {
+            std::cerr << "[ZED][ERROR] Can't start tracking of camera" << std::endl;
+            // Handle the error in your application.
+        }
+
+        // Possible use of a Region of interest for postional tracking
+        // TODO
+        /*
+        std::string roi_file_path = ""; // Set the path of your ROI file
+        sl::Mat mask_roi;
+        auto err = mask_roi.read(roi_file_path.c_str());
+        if (err == sl::ERROR_CODE::SUCCESS)
+            zed.setRegionOfInterest(mask_roi, {sl::MODULE::ALL});
+        else
+            std::cout << "Error loading Region of Interest file: " << err << std::endl;
+        */
+
+        /* //TODO GPS FUSION
+        zed.startPublishing();
+
+        // Setup the Sensor Fusion Module for 
+        
+        sl::InitFusionParameters init_fusion_param;
+        init_fusion_param.coordinate_system = init_parameters.coordinate_system;
+        init_fusion_param.coordinate_units = init_parameters.coordinate_units;
+        init_fusion_param.verbose = true;
+        sl::FUSION_ERROR_CODE fusion_init_code = fusion_.init(init_fusion_param);
+        if (fusion_init_code != sl::FUSION_ERROR_CODE::SUCCESS) {
+            std::cerr << "[Fusion][ERROR] Failed to initialize fusion, error: " << fusion_init_code << std::endl;
+            // Handle the error in your application.
+        }
+
+        sl::CameraIdentifier uuid(zed.getCameraInformation().serial_number);
+        fusion_.subscribe(uuid);
+
+        sl::GNSSCalibrationParameters gnss_calibration_parameter;
+        gnss_calibration_parameter.enable_reinitialization = false;
+        gnss_calibration_parameter.enable_translation_uncertainty_target = false;
+        gnss_calibration_parameter.gnss_vio_reinit_threshold = 5;
+        gnss_calibration_parameter.target_yaw_uncertainty = 1e-2;
+        gnss_calibration_parameter.gnss_antenna_position = sl::float3(0,0,0); // Set your antenna position
+
+
+        sl::PositionalTrackingFusionParameters positional_tracking_fusion_parameters;
+        positional_tracking_fusion_parameters.enable_GNSS_fusion = true;
+        positional_tracking_fusion_parameters.gnss_calibration_parameters = gnss_calibration_parameter;
+        sl::FUSION_ERROR_CODE tracking_error_code = fusion_.enablePositionalTracking(positional_tracking_fusion_parameters);
+        if (tracking_error_code != sl::FUSION_ERROR_CODE::SUCCESS) {
+            std::cout << "[Fusion][ERROR] Could not start tracking, error: " << tracking_error_code << std::endl;
+            // Handle the error in your application
+        }
+
+        
+
+
+
+        */
+
 
         /* ZED object detection initialization */
         sl::ObjectDetectionParameters detection_parameters;
@@ -409,7 +477,7 @@ private:
     sl::Objects objects;
     sl::ObjectDetectionRuntimeParameters object_tracker_params_rt_;
     sl::Resolution display_resolution_;
-    sl::InitParameters init_parameters;
+    sl::Fusion fusion_;
 
     /* Resolution calcualations */
     sl::Resolution resolution;
