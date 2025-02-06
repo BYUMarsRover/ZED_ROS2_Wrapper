@@ -191,7 +191,8 @@ private:
 
         // Start Postional Tracking with parameters
         sl::PositionalTrackingParameters pose_tracking_params;
-        pose_tracking_params.mode = sl::POSITIONAL_TRACKING_MODE::GEN_2;
+        //todo fix this
+        // pose_tracking_params.mode = sl::POSITIONAL_TRACKING_MODE::GEN_2;
         pose_tracking_params.enable_area_memory = false;
         auto positional_init = zed.enablePositionalTracking(pose_tracking_params);
         if (positional_init != sl::ERROR_CODE::SUCCESS) {
