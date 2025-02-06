@@ -174,7 +174,7 @@ private:
         init_parameters.input.setFromSerialNumber(20382332);
         init_parameters.depth_mode = sl::DEPTH_MODE::ULTRA;
         // TODO: Check if this works
-        init_parameters.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FORWARD;
+        init_parameters.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
         //CHECK THAT METER WAS THE DEFAULT
         init_parameters.coordinate_units = sl::UNIT::METER;
 
