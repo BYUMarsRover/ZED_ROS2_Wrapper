@@ -125,6 +125,20 @@ public:
             std::bind(&ObjectDetectionNode::handleToggleDetect, this, std::placeholders::_1, std::placeholders::_2)
         );
         
+
+        // Handle Closing the Zed on shutdown of the node 
+        // Register the shutdown handler
+        rclcpp::on_shutdown([this]() {
+            RCLCPP_INFO(this->get_logger(), "Shutdown signal received, closing ZED camera.");
+            zed.close();
+        });
+
+    }
+
+    // Destructor for handling the graceful stop of the node
+    ~ObjectDetectionNode() {
+        RCLCPP_INFO(this->get_logger(), "Shutting down and closing the ZED camera.");
+        zed.close();
     }
 
 private:
