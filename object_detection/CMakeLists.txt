@@ -1,3 +1,4 @@
+
 cmake_minimum_required(VERSION 3.8)
 project(object_detection)
 
@@ -35,6 +36,14 @@ find_package(nav_msgs REQUIRED)
 find_package(ZED 4 REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(CUDA REQUIRED)
+# Find pkg-config
+find_package(PkgConfig REQUIRED)
+
+# Find libgps
+pkg_check_modules(GPS REQUIRED libgps)
+
+# Include directories
+include_directories(${GPS_INCLUDE_DIRS})
 
 # Install other files
 install(DIRECTORY include/
@@ -57,7 +66,7 @@ file(GLOB_RECURSE HDR_FILES include/*.h)
 
 # Add executable
 # add_executable(${PROJECT_NAME}_node ${SRC_FILES} ${HDR_FILES})
-add_executable(object_detection src/main.cpp src/yolo.cpp)
+add_executable(object_detection src/main.cpp src/yolo.cpp src/GPSDReader.cpp)
 target_include_directories(object_detection PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # Set compile definitions and optimizations
@@ -77,6 +86,7 @@ target_link_libraries(object_detection
   ${SPECIAL_OS_LIBS}
   ${ZED_LIBS}
   ${OpenCV_LIBRARIES}
+  ${GPS_LIBRARIES}
 )
 
 ament_target_dependencies(object_detection

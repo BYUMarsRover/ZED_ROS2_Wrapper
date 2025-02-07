@@ -15,7 +15,7 @@ def generate_launch_description():
             executable='object_detection',
             name='object_detection',
             namespace='zed',
-            # output='screen',
+            output='screen',
             parameters=[params_file],
         ),
         Node(

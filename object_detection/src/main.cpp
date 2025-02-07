@@ -6,10 +6,14 @@
 #include "logging.h"
 #include "utils.h"
 
+// Custom headers
 #include "yolo.hpp"
+#include "IGNSSReader.h"
+#include "GPSDReader.hpp"
 // #include "sl_tools.h"
 
 #include <sl/Camera.hpp>
+#include <sl/Fusion.hpp>
 #include <NvInfer.h>
 #include <cv_bridge/cv_bridge.h>
 
@@ -19,6 +23,17 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/magnetic_field.hpp>
 #include <sensor_msgs/image_encodings.hpp>
+
+// BELOW IS BECAUSE THE header for the GPS library /usr/include/gps.h uses the same define in sensor_msgs/msg/navsatfix ugh
+#ifdef STATUS_NO_FIX
+#undef STATUS_NO_FIX
+#endif
+
+#ifdef STATUS_FIX
+#undef STATUS_FIX
+#endif
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
+
 #include <nav_msgs/msg/odometry.hpp>
 #include <rover_msgs/msg/object_detections.hpp>
 #include <rover_msgs/msg/object_detection.hpp>
@@ -114,6 +129,8 @@ public:
         imu_publisher_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
         mag_publisher_ = this->create_publisher<sensor_msgs::msg::MagneticField>("imu/mag", 10);
         odom_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 10);
+        nav_publisher_ = this->create_publisher<sensor_msgs::msg::NavSatFix>("global", 10);
+
 
         //TODO: TEST this timer to run seperately from the zed obstacles
         timer_sensors_ = this->create_wall_timer(
@@ -131,6 +148,7 @@ public:
         rclcpp::on_shutdown([this]() {
             RCLCPP_INFO(this->get_logger(), "Shutdown signal received, closing ZED camera.");
             zed.close();
+            fusion_.close();
         });
 
     }
@@ -139,6 +157,7 @@ public:
     ~ObjectDetectionNode() {
         RCLCPP_INFO(this->get_logger(), "Shutting down and closing the ZED camera.");
         zed.close();
+        fusion_.close();
     }
 
 private:
@@ -192,7 +211,6 @@ private:
         //CHECK THAT METER WAS THE DEFAULT
         init_parameters.coordinate_units = sl::UNIT::METER;
 
-        RCLCPP_INFO(this->get_logger(), "Camera serial number: %s", std::to_string(zed.getCameraInformation().serial_number).c_str());
 
 
         // Open the camera
@@ -202,10 +220,11 @@ private:
             throw std::runtime_error("Camera initialization failed.");
             return;
         }
+        RCLCPP_INFO(this->get_logger(), "Camera serial number: %s", std::to_string(zed.getCameraInformation().serial_number).c_str());
 
         // Start Postional Tracking with parameters
         sl::PositionalTrackingParameters pose_tracking_params;
-        //todo fix this
+        // TODO: fix this line below. Not sure if in our sdk version we do not have GEN_2 
         // pose_tracking_params.mode = sl::POSITIONAL_TRACKING_MODE::GEN_2;
         pose_tracking_params.enable_area_memory = false;
         auto positional_init = zed.enablePositionalTracking(pose_tracking_params);
@@ -226,7 +245,7 @@ private:
             std::cout << "Error loading Region of Interest file: " << err << std::endl;
         */
 
-        /* //TODO GPS FUSION
+        //TODO GPS FUSION
         zed.startPublishing();
 
         // Setup the Sensor Fusion Module for 
@@ -244,12 +263,13 @@ private:
         sl::CameraIdentifier uuid(zed.getCameraInformation().serial_number);
         fusion_.subscribe(uuid);
 
+        // TODO Verify these parameters!
         sl::GNSSCalibrationParameters gnss_calibration_parameter;
         gnss_calibration_parameter.enable_reinitialization = false;
         gnss_calibration_parameter.enable_translation_uncertainty_target = false;
         gnss_calibration_parameter.gnss_vio_reinit_threshold = 5;
         gnss_calibration_parameter.target_yaw_uncertainty = 1e-2;
-        gnss_calibration_parameter.gnss_antenna_position = sl::float3(0,0,0); // Set your antenna position
+        // gnss_calibration_parameter.gnss_antenna_position = sl::float3(0,0,0); // Set your antenna position
 
 
         sl::PositionalTrackingFusionParameters positional_tracking_fusion_parameters;
@@ -260,12 +280,6 @@ private:
             std::cout << "[Fusion][ERROR] Could not start tracking, error: " << tracking_error_code << std::endl;
             // Handle the error in your application
         }
-
-        
-
-
-
-        */
 
 
         /* ZED object detection initialization */
@@ -290,6 +304,8 @@ private:
 
         /* Object detection data initialization */
         display_resolution_ = zed.getCameraInformation().camera_configuration.resolution;
+
+        gnss_reader.initialize();
         
     }
     
@@ -319,8 +335,61 @@ private:
     void process_ZED_data(){
         if (zed.grab() == sl::ERROR_CODE::SUCCESS) {
             publish_sensor_data();
-            publish_position_data();
+            // publish_position_data();
+            publish_process_fusion();
         }
+    }
+
+    void publish_process_fusion(){
+        
+        // TODO DO I NEED TO FILL IN THE INPUT GNSS DATA?
+        
+        // Ingest your GNSS data using the ingestGNSSData method:
+        sl::GNSSData input_gnss; // Set the input_gnss data with your data
+        if (gnss_reader.grab(input_gnss) == sl::ERROR_CODE::SUCCESS)
+        {
+            // Publish GNSS data to Fusion
+            auto ingest_error = fusion_.ingestGNSSData(input_gnss);
+            if(ingest_error != sl::FUSION_ERROR_CODE::SUCCESS){
+                std::cout << "Ingest error occurred when ingesting GNSSData: " << ingest_error << std::endl;
+            }
+        }
+        // NOT SURE IF YOU PROCESS THE FUSION EVEN WITHOUT GPS DATA
+
+        // After grabbing the camera data, process it to extract position and geo-position information:
+        if (fusion_.process() == sl::FUSION_ERROR_CODE::SUCCESS) {
+            auto current_timestamp = this->now();
+            auto nav_msg = std::make_unique<sensor_msgs::msg::NavSatFix>();
+            nav_msg->header.stamp = current_timestamp;
+            nav_msg->header.frame_id = "map";
+            // Retrieve the current position from the fusion object:
+            sl::Pose fused_position;
+            sl::POSITIONAL_TRACKING_STATE current_state = fusion_.getPosition(fused_position);
+            // sl::FusedPositionalTrackingStatus fused_status = fusion_.getFusedPositionalTrackingStatus();
+
+            // Monitor the VIO/GNSS calibration progress using getCurrentGNSSCalibrationSTD method:
+            float yaw_std;
+            sl::float3 position_std;
+            fusion_.getCurrentGNSSCalibrationSTD(yaw_std, position_std);
+
+            sl::GeoPose current_geopose;
+            auto current_geopose_status = fusion_.getGeoPose(current_geopose);
+            if (yaw_std != -1.f)
+                std::cout << "GNSS State: " << current_geopose_status << ": calibration uncertainty yaw_std " << yaw_std << " rad position_std " << position_std[0] << " m, " << position_std[1] << " m, " << position_std[2] << " m\t\t\t\r";
+
+            // Once calibration is complete, retrieve the GeoPose of your system:
+            fusion_.getGeoPose(current_geopose);
+
+            nav_msg->latitude = current_geopose.latlng_coordinates.getLatitude();
+            nav_msg->longitude = current_geopose.latlng_coordinates.getLongitude();
+            nav_msg->altitude = current_geopose.latlng_coordinates.getAltitude();    
+
+            // TODO add position covariance from the zed
+
+            nav_publisher_->publish(std::move(nav_msg));
+        }
+
+
     }
 
     void publish_position_data(){
@@ -514,6 +583,11 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher_;
     rclcpp::Publisher<sensor_msgs::msg::MagneticField>::SharedPtr mag_publisher_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
+    rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr nav_publisher_;
+
+    //GPSD client
+    GPSDReader gnss_reader;
+
     //TODO: Test second timer to run timing of objects and data independently
     // rclcpp::TimerBase::SharedPtr timer_;
 
