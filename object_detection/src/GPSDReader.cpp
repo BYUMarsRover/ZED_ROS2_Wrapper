@@ -147,6 +147,7 @@ sl::GNSSData GPSDReader::getNextGNSSValue() {
 
         return current_gnss_data;
     } else {
+        // TODO: HANDLE THIS FIX LOST CASE: I dont think we need it
         std::cout << "Fix lost: reinit GNSS" << std::endl;
         initialize();
         return getNextGNSSValue();

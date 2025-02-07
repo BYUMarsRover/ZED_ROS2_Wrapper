@@ -358,6 +358,8 @@ private:
 
         // After grabbing the camera data, process it to extract position and geo-position information:
         if (fusion_.process() == sl::FUSION_ERROR_CODE::SUCCESS) {
+
+            //TODO: take the timestamp from the measurement
             auto current_timestamp = this->now();
             auto nav_msg = std::make_unique<sensor_msgs::msg::NavSatFix>();
             nav_msg->header.stamp = current_timestamp;
@@ -380,8 +382,8 @@ private:
             // Once calibration is complete, retrieve the GeoPose of your system:
             fusion_.getGeoPose(current_geopose);
 
-            nav_msg->latitude = current_geopose.latlng_coordinates.getLatitude();
-            nav_msg->longitude = current_geopose.latlng_coordinates.getLongitude();
+            nav_msg->latitude = current_geopose.latlng_coordinates.getLatitude(false);
+            nav_msg->longitude = current_geopose.latlng_coordinates.getLongitude(false);
             nav_msg->altitude = current_geopose.latlng_coordinates.getAltitude();    
 
             // TODO add position covariance from the zed
@@ -428,8 +430,8 @@ private:
 
         if (ts.isNew(sensors_data.imu)) {
             std::cout << "IMU Orientation: {" << sensors_data.imu.pose.getOrientation() << "}" << std::endl;
-            std::cout << "IMU Linear Acceleration: {" << sensors_data.imu.linear_acceleration << "} [m/sec^2]" << std::endl;
-            std::cout << "IMU Angular Velocity: {" << sensors_data.imu.angular_velocity << "} [deg/sec]" << std::endl;
+            // std::cout << "IMU Linear Acceleration: {" << sensors_data.imu.linear_acceleration << "} [m/sec^2]" << std::endl;
+            // std::cout << "IMU Angular Velocity: {" << sensors_data.imu.angular_velocity << "} [deg/sec]" << std::endl;
         }
         else{
             std::cout << "No new sensor data this update" << std::endl;
@@ -438,7 +440,7 @@ private:
 
         // Check if Magnetometer data has been updated
         // if (ts.isNew(sensors_data.magnetometer)) {
-        std::cout << " Magnetometer Magnetic Field: {" << sensors_data.magnetometer.magnetic_field_calibrated << "} [uT]" << std::endl;
+        // std::cout << " Magnetometer Magnetic Field: {" << sensors_data.magnetometer.magnetic_field_calibrated << "} [uT]" << std::endl;
         // }
 
         auto current_timestamp = this->now();
