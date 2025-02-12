@@ -456,9 +456,10 @@ private:
         imu_msg->orientation.y = imu_data.pose.getOrientation().y;
         imu_msg->orientation.z = imu_data.pose.getOrientation().z;
         imu_msg->orientation.w = imu_data.pose.getOrientation().w;
-        imu_msg->angular_velocity.x = imu_data.angular_velocity.x;
-        imu_msg->angular_velocity.y = imu_data.angular_velocity.y;
-        imu_msg->angular_velocity.z = imu_data.angular_velocity.z;
+
+        imu_msg->angular_velocity.x = imu_data.angular_velocity.x * DEG2RAD;
+        imu_msg->angular_velocity.y = imu_data.angular_velocity.y * DEG2RAD;
+        imu_msg->angular_velocity.z = imu_data.angular_velocity.z * DEG2RAD;
         imu_msg->linear_acceleration.x = imu_data.linear_acceleration.x;
         imu_msg->linear_acceleration.y = imu_data.linear_acceleration.y;
         imu_msg->linear_acceleration.z = imu_data.linear_acceleration.z;
