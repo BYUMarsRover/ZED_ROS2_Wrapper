@@ -101,7 +101,7 @@ public:
         odom_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 10);
         nav_publisher_ = this->create_publisher<sensor_msgs::msg::NavSatFix>("global", 10);
 
-
+        
         // PARMETERS
         this->declare_parameter<std::string>("engine_name", "");
         std::string engine_name_;
@@ -198,7 +198,7 @@ private:
         
         /* ZED camera initializaion */
         // Opening the ZED camera before the model deserialization to avoid cuda context issue
-        
+
         // INIT PARAMERS
         sl::InitParameters init_parameters;
         init_parameters.sdk_verbose = true;
@@ -257,6 +257,14 @@ private:
         sl::CameraIdentifier uuid(zed.getCameraInformation().serial_number);
         fusion_.subscribe(uuid);
 
+
+        // GNSS FUSION PARMETERS
+        #ifdef GPSD_FOUND
+        RCLCPP_INFO(this->get_logger(),"Running GPS Fusion");
+        #endif
+        #ifndef GPSD_FOUND
+        RCLCPP_INFO(this->get_logger(),"NOT Running GPS Fusion");
+        #endif
         // TODO Verify these parameters!
         sl::GNSSCalibrationParameters gnss_calibration_parameter;
         gnss_calibration_parameter.enable_reinitialization = false;
