@@ -332,21 +332,21 @@ private:
         RCLCPP_INFO(this->get_logger(), "Received GPS");
 
         //Check if fix is greater than 2D
-        if(msg.fix_type >= 2){
-            if(msg.num_sv >= 16){
+        if(msg->fix_type >= 2){
+            if(msg->num_sv >= 16){
                 // Fill out coordinates:
                 // TODO CHECK IF IT IS RADIANS OR DEGREES - last param is: is_radian = false
-                input_gnss_.setCoordinates(msg.lla[0], msg.lla[1], msg.lla[2], false);
+                input_gnss_.setCoordinates(msg->lla[0], msg->lla[1], msg->lla[2], false);
                 
                 // Fill out default standard deviation:
                 // WHY DID IT PUT IN 0.001 for std? 
-                input_gnss.longitude_std = input_gnss.latitude_std = 0.001f;
-                input_gnss.altitude_std = 1.f;
+                input_gnss_.longitude_std = input_gnss_.latitude_std = 0.001f;
+                input_gnss_.altitude_std = 1.f;
 
                 std::array<double, 9> position_covariance;
-                position_covariance[0] = msg.h_acc * msg.h_acc;
-                position_covariance[1 * 3 + 1] = msg.h_acc * msg.h_acc;
-                position_covariance[2 * 3 + 2] = msg.v_acc * msg.v_acc;
+                position_covariance[0] = msg->h_acc * msg->h_acc;
+                position_covariance[1 * 3 + 1] = msg->h_acc * msg->h_acc;
+                position_covariance[2 * 3 + 2] = msg->v_acc * msg->v_acc;
 
                 input_gnss_.position_covariance = position_covariance;
                 
@@ -364,7 +364,7 @@ private:
 
 
                 // Get status and get mode
-                int gpsd_mode = msg.fix_type;
+                int gpsd_mode = msg->fix_type;
                 sl::GNSS_MODE sl_mode = sl::GNSS_MODE::UNKNOWN;
         
                 switch (gpsd_mode) {
@@ -384,7 +384,7 @@ private:
                 
 
                 //CHECK THE FLAGS HERE
-                int gpsd_status = msg.flags;
+                int gpsd_status = msg->flags;
                 sl::GNSS_STATUS sl_status = sl::GNSS_STATUS::UNKNOWN;
         
                 switch (gpsd_status) {
@@ -420,7 +420,7 @@ private:
                     //     break;
                     default:
                         sl_status = sl::GNSS_STATUS::UNKNOWN;
-                        RCLCPP_WARN_THROTTLE(this->get_logger(), *node->get_clock(), 5000, "Fix Status Unkown. Not all status implemented");
+                        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "Fix Status Unkown. Not all status implemented");
                         break;
                 }
 
@@ -433,13 +433,13 @@ private:
 
             } else{
                 // Publish a status every 5 seconds if we do not have a good satellite view
-                RCLCPP_INFO_THROTTLE(this->get_logger(), *node->get_clock(), 5000, "Seeing less than 16 Satellites...");
+                RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "Seeing less than 16 Satellites...");
 
             }
 
         } else{
             // Publish a status every 5 seconds if we do not have a fix
-            RCLCPP_INFO_THROTTLE(this->get_logger(), *node->get_clock(), 5000, "Waiting for a fix...");
+            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "Waiting for a fix...");
 
         }
 

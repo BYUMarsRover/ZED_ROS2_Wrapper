@@ -19,6 +19,7 @@
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>image_transport</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>ublox_read_2</exec_depend>
 
   <!-- Make sure rosidl_default_runtime is included if you're using ROS 2 interfaces -->
   <exec_depend>rosidl_default_runtime</exec_depend>

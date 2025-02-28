@@ -29,6 +29,7 @@ find_package(image_transport REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(ublox_read_2 REQUIRED)
 # find_package(TensorRT REQUIRED)
 
 # uncomment the following section in order to fill in
@@ -97,6 +98,7 @@ ament_target_dependencies(object_detection
   sensor_msgs
   nav_msgs
   std_srvs
+  ublox_read_2
 )
 
 # Install targets
