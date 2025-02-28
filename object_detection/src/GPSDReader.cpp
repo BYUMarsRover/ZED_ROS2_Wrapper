@@ -56,6 +56,7 @@ sl::GNSSData GPSDReader::getNextGNSSValue() {
     struct gps_data_t *gpsd_data;
     while ((gpsd_data = gnss_getter->read()) == NULL)
         ;
+    //Ensure a higher than 2D Fix
     if (gpsd_data->fix.mode >= MODE_2D) {
         int nb_low_snr = 0;
         for (int i = 0; i < gpsd_data->satellites_visible; i++) {
@@ -186,3 +187,21 @@ void GPSDReader::grabGNSSData() {
     }
 
 }
+
+
+
+/*
+
+Wait for initial GPS fix
+if Fix is greater than 2D and more than 16 (PARAM) satellites AND
+gpsd_data->fix.mode >= MODE_2D
+    Set a flag when the fix is obtained to start ingesting or the same flag for new data
+
+
+    Get the info:
+    - Lat, long, altitude
+    - Err H and V
+    - Time stamp sec, nano sec
+    - GPS STATUS AND MODE
+
+*/
