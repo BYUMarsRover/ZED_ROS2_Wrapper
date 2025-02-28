@@ -23,6 +23,7 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/magnetic_field.hpp>
 #include <sensor_msgs/image_encodings.hpp>
+#include <ublox_read_2/msg/position_velocity_time.hpp>
 
 // BELOW IS BECAUSE THE header for the GPS library /usr/include/gps.h uses the same define in sensor_msgs/msg/navsatfix ugh
 #ifdef STATUS_NO_FIX
@@ -32,6 +33,8 @@
 #ifdef STATUS_FIX
 #undef STATUS_FIX
 #endif
+
+
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 
 #include <nav_msgs/msg/odometry.hpp>
@@ -142,6 +145,12 @@ public:
             std::bind(&ObjectDetectionNode::handleToggleDetect, this, std::placeholders::_1, std::placeholders::_2)
         );
         
+        // Create a subscription to the UBLOX Position velocity time message
+        // Look into possibly using prebuilt message type like one from gpsd client package
+        gps_sub_ = this->create_subscription<ublox_read_2::msg::PositionVelocityTime>(
+            "/rover/PosVelTime", 10, std::bind(&ObjectDetectionNode::gps_callback, this, std::placeholders::_1));
+        
+        new_gps_data_ = false;      //Initialize flag as no new gps data
 
         // Handle Closing the Zed on shutdown of the node 
         // Register the shutdown handler
@@ -305,7 +314,7 @@ private:
         /* Object detection data initialization */
         display_resolution_ = zed.getCameraInformation().camera_configuration.resolution;
 
-        gnss_reader.initialize();
+        // gnss_reader.initialize();
         
     }
     
@@ -315,6 +324,125 @@ private:
         response->success = true;
         response->message = run_detector_ ? "Detection enabled" : "Detection disabled";
         RCLCPP_INFO(this->get_logger(), "Toggled Detection: %s", response->message.c_str());
+    }
+
+    void gps_callback(const ublox_read_2::msg::PositionVelocityTime::SharedPtr msg)
+    {
+        //TODO take out this once it works
+        RCLCPP_INFO(this->get_logger(), "Received GPS");
+
+        //Check if fix is greater than 2D
+        if(msg.fix_type >= 2){
+            if(msg.num_sv >= 16){
+                // Fill out coordinates:
+                // TODO CHECK IF IT IS RADIANS OR DEGREES - last param is: is_radian = false
+                input_gnss_.setCoordinates(msg.lla[0], msg.lla[1], msg.lla[2], false);
+                
+                // Fill out default standard deviation:
+                // WHY DID IT PUT IN 0.001 for std? 
+                input_gnss.longitude_std = input_gnss.latitude_std = 0.001f;
+                input_gnss.altitude_std = 1.f;
+
+                std::array<double, 9> position_covariance;
+                position_covariance[0] = msg.h_acc * msg.h_acc;
+                position_covariance[1 * 3 + 1] = msg.h_acc * msg.h_acc;
+                position_covariance[2 * 3 + 2] = msg.v_acc * msg.v_acc;
+
+                input_gnss_.position_covariance = position_covariance;
+                
+                // Compute timestamp
+                // FUTURE TO DO. GET THE TIMESTAMP FROM THE GPS in the UBLOX READ. THEN SYNC THE SYSTEM TIME WITH IT
+                 // Get current system time (UTC)
+                rclcpp::Time now = rclcpp::Clock(RCL_SYSTEM_TIME).now();
+
+                // Convert to seconds and nanoseconds
+                uint64_t current_ts_gps = now.seconds() * 1000000;         // Seconds since epoch (UTC)
+                uint64_t current_tns_gps = now.nanoseconds() / 1000;
+                auto current_gnss_timestamp = current_ts_gps + current_tns_gps;
+                
+                input_gnss_.ts.setMicroseconds(current_gnss_timestamp);
+
+
+                // Get status and get mode
+                int gpsd_mode = msg.fix_type;
+                sl::GNSS_MODE sl_mode = sl::GNSS_MODE::UNKNOWN;
+        
+                switch (gpsd_mode) {
+                    case 0: // MODE_NO_FIX
+                        sl_mode = sl::GNSS_MODE::NO_FIX;
+                        break;
+                    case 2: // MODE_2D
+                        sl_mode = sl::GNSS_MODE::FIX_2D;
+                        break;
+                    case 3: // MODE_3D
+                        sl_mode = sl::GNSS_MODE::FIX_3D;
+                        break;
+                    default:
+                        sl_mode = sl::GNSS_MODE::UNKNOWN;
+                        break;
+                }
+                
+
+                //CHECK THE FLAGS HERE
+                int gpsd_status = msg.flags;
+                sl::GNSS_STATUS sl_status = sl::GNSS_STATUS::UNKNOWN;
+        
+                switch (gpsd_status) {
+                    // case 0: // STATUS_UNK
+                    //     sl_status = sl::GNSS_STATUS::UNKNOWN;
+                    //     break;
+                    case 1: // STATUS_GPS
+                        sl_status = sl::GNSS_STATUS::SINGLE;
+                        break;
+                    case 2: // STATUS_DGPS
+                        sl_status = sl::GNSS_STATUS::DGNSS;
+                        break;
+                    // case 3: // STATUS_RTK_FIX
+                    //     sl_status = sl::GNSS_STATUS::RTK_FIX;
+                    //     break;
+                    // case 4: // STATUS_RTK_FLT
+                    //     sl_status = sl::GNSS_STATUS::RTK_FLOAT;
+                    //     break;
+                    // case 5: // STATUS_DR
+                    //     sl_status = sl::GNSS_STATUS::SINGLE;
+                    //     break;
+                    // case 6: // STATUS_GNSSDR
+                    //     sl_status = sl::GNSS_STATUS::DGNSS;
+                    //     break;
+                    // case 7: // STATUS_TIME
+                    //     sl_status = sl::GNSS_STATUS::UNKNOWN;
+                    //     break;
+                    // case 8: // STATUS_SIM
+                    //     sl_status = sl::GNSS_STATUS::UNKNOWN;
+                    //     break;
+                    // case 9: // STATUS_PPS_FIX
+                    //     sl_status = sl::GNSS_STATUS::SINGLE;
+                    //     break;
+                    default:
+                        sl_status = sl::GNSS_STATUS::UNKNOWN;
+                        RCLCPP_WARN_THROTTLE(this->get_logger(), *node->get_clock(), 5000, "Fix Status Unkown. Not all status implemented");
+                        break;
+                }
+
+                input_gnss_.gnss_status = sl_status;
+                input_gnss_.gnss_mode = sl_mode;
+
+                // TODO:
+                // CHECK TO SEE IF UBLOX READ ONLY PUBLISHES NEW DATA
+                new_gps_data_ = true;
+
+            } else{
+                // Publish a status every 5 seconds if we do not have a good satellite view
+                RCLCPP_INFO_THROTTLE(this->get_logger(), *node->get_clock(), 5000, "Seeing less than 16 Satellites...");
+
+            }
+
+        } else{
+            // Publish a status every 5 seconds if we do not have a fix
+            RCLCPP_INFO_THROTTLE(this->get_logger(), *node->get_clock(), 5000, "Waiting for a fix...");
+
+        }
+
     }
 
     void processFrame() {
@@ -345,14 +473,14 @@ private:
         // TODO DO I NEED TO FILL IN THE INPUT GNSS DATA?
         
         // Ingest your GNSS data using the ingestGNSSData method:
-        sl::GNSSData input_gnss; // Set the input_gnss data with your data
-        if (gnss_reader.grab(input_gnss) == sl::ERROR_CODE::SUCCESS)
+        if (new_gps_data_)
         {
             // Publish GNSS data to Fusion
-            auto ingest_error = fusion_.ingestGNSSData(input_gnss);
+            auto ingest_error = fusion_.ingestGNSSData(input_gnss_);
             if(ingest_error != sl::FUSION_ERROR_CODE::SUCCESS){
                 std::cout << "Ingest error occurred when ingesting GNSSData: " << ingest_error << std::endl;
             }
+            new_gps_data_ = false;
         }
         // NOT SURE IF YOU PROCESS THE FUSION EVEN WITHOUT GPS DATA
 
@@ -589,11 +717,13 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr nav_publisher_;
 
     //GPSD client
-    GPSDReader gnss_reader;
+    // GPSDReader gnss_reader;
 
-    //TODO: Test second timer to run timing of objects and data independently
-    // rclcpp::TimerBase::SharedPtr timer_;
+    //Subsciptions:
+    rclcpp::Subscription<ublox_read_2::msg::PositionVelocityTime>::SharedPtr gps_sub_;
 
+    bool new_gps_data_;
+    sl::GNSSData input_gnss_;
 
     //IMAGE TRANSPORT
     image_transport::Publisher detection_annotation_;
