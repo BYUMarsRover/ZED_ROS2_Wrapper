@@ -428,6 +428,7 @@ private:
                 input_gnss_.gnss_mode = sl_mode;
 
                 // TODO:
+                // COULD CHECK THE TIMESTAMP TO COMPARE
                 // CHECK TO SEE IF UBLOX READ ONLY PUBLISHES NEW DATA
                 new_gps_data_ = true;
 
@@ -480,6 +481,7 @@ private:
             if(ingest_error != sl::FUSION_ERROR_CODE::SUCCESS){
                 std::cout << "Ingest error occurred when ingesting GNSSData: " << ingest_error << std::endl;
             }
+            RCLCPP_INFO(this->get_logger(), "Fusing GPS DATA!");
             new_gps_data_ = false;
         }
         // NOT SURE IF YOU PROCESS THE FUSION EVEN WITHOUT GPS DATA

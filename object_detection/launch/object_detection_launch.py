@@ -21,10 +21,10 @@ def generate_launch_description():
             parameters=[params_file],
         ),
 
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(os.path.join( 
-                get_package_share_directory('gpsd_client'), 'launch', 'gpsd_client-launch.py'))
-        ),
+        # IncludeLaunchDescription(
+        #     PythonLaunchDescriptionSource(os.path.join( 
+        #         get_package_share_directory('gpsd_client'), 'launch', 'gpsd_client-launch.py'))
+        # ),
         # Node(
         #      package='tf2_ros',
         #      executable='static_transform_publisher',
