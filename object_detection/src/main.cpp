@@ -94,47 +94,41 @@ class ObjectDetectionNode : public rclcpp::Node {
 public:
     ObjectDetectionNode() : Node("object_detection") {
         // Publishers
-        
         detection_annotation_ = image_transport::create_publisher(this, "object_detection/annotated");
-
         object_detection_pub_ = this->create_publisher<rover_msgs::msg::ObjectDetections>("object_detection", 10);
-        
-        // Declare the 'engine_name' parameter with an empty string as the default value
-        this->declare_parameter<std::string>("engine_name", "");
-        std::string engine_name;
-        this->get_parameter("engine_name", engine_name);
-        // Period in milliseconds for frame process 
-        int process_period_ms;      
-        this->declare_parameter<int>("process_period_ms", 2000);
-        this->get_parameter("process_period_ms", process_period_ms);
-        // Period in milliseconds for sensor data
-        int sensor_process_period_ms;      
-        this->declare_parameter<int>("sensor_process_period_ms", 20);
-        this->get_parameter("sensor_process_period_ms", sensor_process_period_ms);
-
-        this->declare_parameter<float>("confidence_thresh", 0.3);
-        this->get_parameter("confidence_thresh", this->conf_thresh);
-
-        // Initialize pose with identity
-        cam_w_pose.pose_data.setIdentity();
-
-        setup_node();
-
-        setup_yolo(engine_name);  
-        // Timer for the detection loop
-        timer_ = this->create_wall_timer(std::chrono::milliseconds(process_period_ms), std::bind(&ObjectDetectionNode::processFrame, this));
-
-
-        /* SETUP IMU, MAG, ODOM Publishers */
         imu_publisher_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
         mag_publisher_ = this->create_publisher<sensor_msgs::msg::MagneticField>("imu/mag", 10);
         odom_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 10);
         nav_publisher_ = this->create_publisher<sensor_msgs::msg::NavSatFix>("global", 10);
 
 
-        //TODO: TEST this timer to run seperately from the zed obstacles
+        // PARMETERS
+        this->declare_parameter<std::string>("engine_name", "");
+        std::string engine_name_;
+        this->get_parameter("engine_name", engine_name_);
+        
+        this->declare_parameter<int>("process_period_ms", 50);  // Period in milliseconds for frame process 
+        this->get_parameter("process_period_ms", process_period_ms_);
+        
+        int sensor_process_period_ms_;      
+        this->declare_parameter<int>("sensor_process_period_ms", 20); // Period in milliseconds for sensor data
+        this->get_parameter("sensor_process_period_ms", sensor_process_period_ms_);
+
+        this->declare_parameter<float>("confidence_thresh", 0.3);
+        this->get_parameter("confidence_thresh", this->conf_thresh);
+
+        this->declare_parameter<bool>("publish_images", false);
+        this->get_parameter("publish_images", publish_annotated_img_);
+
+        setup_camera();
+
+        setup_yolo(engine_name_);  
+
+        // Timer for the detection loop
+        timer_ = this->create_wall_timer(std::chrono::milliseconds(process_period_ms_), std::bind(&ObjectDetectionNode::processFrame, this));
+
         timer_sensors_ = this->create_wall_timer(
-            std::chrono::milliseconds(sensor_process_period_ms), std::bind(&ObjectDetectionNode::process_ZED_data, this));
+            std::chrono::milliseconds(sensor_process_period_ms_), std::bind(&ObjectDetectionNode::process_ZED_data, this));
 
         //Testing service call to start the object detection
         service_ = this->create_service<std_srvs::srv::SetBool>(
@@ -193,25 +187,26 @@ private:
     }
 
        
-    void setup_node(){
+    void setup_camera(){
         //TODO: Check to make sure below is not used anymore
         // sensor_msgs::CameraInfoPtr left_camera_info_msg;
         // left_camera_info_msg.reset(new sensor_msgs::CameraInfo());
         // std::string left_camera_frame_id = "zed2i_left_camera_optical_frame";
+        // Initialize pose with identity
+        //TODO is this used below?
+        cam_w_pose.pose_data.setIdentity();
         
         /* ZED camera initializaion */
         // Opening the ZED camera before the model deserialization to avoid cuda context issue
         
+        // INIT PARAMERS
         sl::InitParameters init_parameters;
         init_parameters.sdk_verbose = true;
         init_parameters.input.setFromSerialNumber(20382332);
         init_parameters.depth_mode = sl::DEPTH_MODE::ULTRA;
-        // TODO: Check if this works
+        // Coordinate System of the ZED - There may be another coornate system for the images
         init_parameters.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
-        //CHECK THAT METER WAS THE DEFAULT
         init_parameters.coordinate_units = sl::UNIT::METER;
-
-
 
         // Open the camera
         auto returned_state = zed.open(init_parameters);
@@ -248,8 +243,7 @@ private:
         //TODO GPS FUSION
         zed.startPublishing();
 
-        // Setup the Sensor Fusion Module for 
-        
+        // Setup the Sensor Fusion Module with parameters
         sl::InitFusionParameters init_fusion_param;
         init_fusion_param.coordinate_system = init_parameters.coordinate_system;
         init_fusion_param.coordinate_units = init_parameters.coordinate_units;
@@ -268,6 +262,7 @@ private:
         gnss_calibration_parameter.enable_reinitialization = false;
         gnss_calibration_parameter.enable_translation_uncertainty_target = false;
         gnss_calibration_parameter.gnss_vio_reinit_threshold = 5;
+        // TODO handle the yaw unceartinty
         gnss_calibration_parameter.target_yaw_uncertainty = 1e-2;
         // gnss_calibration_parameter.gnss_antenna_position = sl::float3(0,0,0); // Set your antenna position
 
@@ -537,15 +532,17 @@ private:
         // TODO: WE MIGHT NEED THE CVT FUNCTION IN HERE FOR ANNotations??
         // THE OLD CODE LOOKS A LITTLE DIFFERENT BELOW THIS
         // Annotate and publish image
-        if (detection_annotation_.getNumSubscribers() > 0) {
+        if (publish_annotated_img_) {
             left_cv_ = slMat2cvMat(left_sl);
             for (const auto& detection : detections) {
                 cv::Rect r = get_rect(detection.box);
                 cv::rectangle(left_cv_, r, cv::Scalar(0x27, 0xC1, 0x36), 2);
                 cv::putText(left_cv_, std::to_string(static_cast<int>(detection.label)), cv::Point(r.x, r.y - 1), cv::FONT_HERSHEY_PLAIN, 1.2, cv::Scalar(0xFF, 0xFF, 0xFF), 2);
             }
+            cv::Mat rgb_image;
+            cv::cvtColor(left_cv_, rgb_image, cv::COLOR_RGBA2RGB);
             
-            sensor_msgs::msg::Image::SharedPtr msg = cv_bridge::CvImage(std_msgs::msg::Header(), sensor_msgs::image_encodings::TYPE_8UC4, left_cv_).toImageMsg();
+            sensor_msgs::msg::Image::SharedPtr msg = cv_bridge::CvImage(std_msgs::msg::Header(), sensor_msgs::image_encodings::BGR8, rgb_image).toImageMsg();
             // std_msgs::msg::Header header;
             // msg.header.stamp = this->now(); // Set the current time
             detection_annotation_.publish(msg);
@@ -572,8 +569,7 @@ private:
     sl::Mat left_sl, point_cloud;
     sl::Pose cam_w_pose = sl::Pose();
 
-    // std::string mag_frame_id = "zed2i_mag_link";
-    // std::string imu_frame_id = "zed2i_imu_link";    
+    int process_period_ms_;
 
     rclcpp::Publisher<rover_msgs::msg::ObjectDetections>::SharedPtr object_detection_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
@@ -600,6 +596,7 @@ private:
     
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr service_;
     bool run_detector_ = false; //Flag to run object detection
+    bool publish_annotated_img_;  //Flag to publish annotated images
 };
 
 
